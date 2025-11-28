@@ -1,0 +1,151 @@
+% Начало преамбулы
+\usepackage[english, russian]{babel}
+\usepackage{fontspec} 
+\setmainfont{Times New Roman} 
+\setmonofont{Consolas} 
+
+\usepackage[left=20mm, right=10mm, top=20mm, bottom=20mm, headheight=1cm, headsep=0.5cm, footskip=1cm]{geometry}
+\pagestyle{plain}
+
+\usepackage{indentfirst}
+\setlength{\parindent}{1.25cm}
+\setlength{\parskip}{0pt}
+
+% Оформление глав и разделов
+\setsecnumdepth{subsection}
+\renewcommand*{\chapterheadstart}{}
+\renewcommand*{\printchaptername}{}
+\renewcommand*{\chapnumfont}{\normalfont\bfseries}
+\renewcommand*{\afterchapternum}{\hspace{1em}}
+\renewcommand*{\printchaptertitle}{\normalfont\bfseries\centering\MakeUppercase}
+\setbeforesecskip{20pt}
+\setaftersecskip{20pt}
+\setsecheadstyle{\raggedright\normalfont\bfseries}
+\setbeforesubsecskip{20pt}
+\setaftersubsecskip{20pt}
+\setsubsecheadstyle{\raggedright\normalfont\bfseries}
+
+% Оглавление
+\addto\captionsrussian{\renewcommand\contentsname{Содержание}}
+\setrmarg{2.55em plus1fil}
+\renewcommand{\aftertoctitle}{\afterchaptertitle \vspace{-\cftbeforechapterskip}}
+\renewcommand*{\cftchapternumwidth}{1.5em}
+\renewcommand*{\cftchapterfont}{\normalfont\MakeUppercase}
+\renewcommand*{\cftchapterpagefont}{\normalfont}
+\renewcommand*{\cftchapterdotsep}{\cftdotsep}
+\renewcommand*{\cftdotsep}{1}
+\renewcommand*{\cftchapterleader}{\cftdotfill{\cftchapterdotsep}}
+\maxtocdepth{subsection}
+
+% Графика
+\usepackage{graphicx}
+\graphicspath{{images/}}
+\usepackage[section]{placeins}
+
+% Загрузите subcaption ДО настройки \thesubfigure
+\usepackage{subcaption}
+
+% Настройки подписей
+\captionnamefont{\normalfont}
+\captiontitlefont{\normalfont}
+\captiondelim{ --- }
+\renewcommand{\figurename}{Рисунок}
+\renewcommand{\thesubfigure}{\asbuk{subfigure}}  % Теперь будет работать
+\setkeys{Gin}{width=\textwidth}
+
+% Математика и научные пакеты
+\usepackage{amsmath}
+\usepackage{siunitx}
+\usepackage[version=4]{mhchem}
+
+% Таблицы
+\usepackage{longtable,ltcaption}
+\usepackage{multirow,makecell}
+\usepackage{booktabs}
+
+% Код и листинги
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{fvextra}
+\usepackage{minted}
+
+% Списки
+\usepackage{enumitem}
+\renewcommand*{\labelitemi}{\normalfont{--}}
+\makeatletter
+    \AddEnumerateCounter{\asbuk}{\russian@alph}
+\makeatother
+\renewcommand{\labelenumii}{\asbuk{enumii})}
+\renewcommand{\labelenumiii}{\arabic{enumiii})}
+\setlist{noitemsep, leftmargin=*}
+\setlist[1]{labelindent=\parindent}
+\setlist[2]{leftmargin=\parindent}
+\setlist[3]{leftmargin=\parindent}
+
+% Библиография
+\usepackage{csquotes}
+\usepackage[
+backend=biber,
+bibencoding=utf8,
+sorting=none,
+style=gost-numeric,
+language=auto,
+autolang=other,
+sortcites=true,
+movenames=false,
+maxnames=5,
+minnames=3,
+doi=false,
+isbn=false,
+]{biblatex}[2016/09/17]
+\DeclareDelimFormat{bibinitdelim}{}
+\addbibresource{bibl.bib}
+
+% Дополнительные пакеты
+\usepackage{framed}
+\usepackage{pdfpages}
+\usepackage{microtype}
+\usepackage{tcolorbox}
+\usepackage{hyphenat}
+\usepackage{soul}
+
+% Типографские настройки
+\tolerance 1414
+\hbadness 1414
+\emergencystretch 1.5em
+\hfuzz 0.3pt
+\vfuzz \hfuzz
+\clubpenalty=10000
+\widowpenalty=10000
+\brokenpenalty=4991
+\sloppy
+
+% Русская нумерация
+\makeatletter
+    \def\russian@Alph#1{\ifcase#1\or
+       А\or Б\or В\or Г\or Д\or Е\or Ж\or
+       И\or К\or Л\or М\or Н\or
+       П\or Р\or С\or Т\or У\or Ф\or Х\or
+       Ц\or Ш\or Щ\or Э\or Ю\or Я\else\xpg@ill@value{#1}{russian@Alph}\fi}
+    \def\russian@alph#1{\ifcase#1\or
+       а\or б\or в\or г\or д\or е\or ж\or
+       и\or к\or л\or м\or н\or
+       п\or р\or с\or т\or У\or Ф\or Х\or
+       ц\or ш\or щ\or э\or ю\or я\else\xpg@ill@value{#1}{russian@alph}\fi}
+\makeatother
+
+% Счетчики
+\counterwithout{figure}{chapter}
+\counterwithout{equation}{chapter}
+\counterwithout{table}{chapter}
+
+% Гиперссылки
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linktoc=all,
+    linktocpage=true,
+    linkcolor=red,
+    citecolor=red
+}
+\usepackage{bookmark}
