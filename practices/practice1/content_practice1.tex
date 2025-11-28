@@ -1,17 +1,126 @@
-\chapter{Архитектура SDR системы}
+\chapter*{Практика №1\\Архитектура SDR системы\\Установка ПО, Настройка устройства}
 
-\begin{center}
-\href{https://github.com/your-repo/practice01}{Ссылка на GitHub}
-\end{center}
+\begin{leftbar}
+\href{https://github.com/someotb/sdr_reports/tree/main/practices/practice1}{Ссылка на GitHub}
+\end{leftbar}
 
-\section*{Установка ПО, Настройка устройства}
+\section*{Цель практики:}
+Узнать, что такое SDR, изучить принципы его работы и внутреннюю
+архитектуру на базовом уровне. Познакомиться с инструментом GNU Radio и
+создать с его помощью программу для SDR, позволяющую принимать радио.
 
-\subsection*{Цель практики:}
-Знакомство с синтаксисом Python и библиотеками для работы с Pluto SDR
+\section*{Краткие теоретические сведения}
 
-\subsection*{Краткие теоретические сведения}
-SDR, или Software-Defined Radio (программно-определяемое радио), представляет собой технологию...
+Что такое SDR?
 
-% ... остальное ваше содержание
-\subsection*{Вывод}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.4\textwidth]{ADALM-Pluto_medium_block_diagram.png}
+    \caption{ADALM Pluto}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{adalm_pluto.png}
+    \caption{ADALM Pluto}
+\end{figure}
+
+Обучающая платформа PlutoSDR может взаимодействовать с:
+
+\begin{enumerate}
+    \item Matlab, Simulink
+    \item GNU Radio
+    \item C, C++ при помощи дополнительных библиотек
+    \item C\#
+    \item Среда языка Python
+\end{enumerate}
+
+В начале данного курса мы наладим взаимодействие PlutoSDR с языком Python. Далее напишем программы под другие платформы, сравним разницу по времени обработки сигналов, простоте написания кода и редактирования.
+
+\section*{Чип AD9363}
+
+Программируемый РЧ приемопередатчик, возможности которого позволяют использовать его для построения микро- (фемто-) сот мобильной связи 3G, 4G и 5G (в некоторых конфигурациях).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{xilinx_zynq.png}
+    \caption{ПЛИС Xilinx Zynq}
+\end{figure}
+
+\subsection*{Основные характеристики}
+
+\begin{itemize}
+    \item \textbf{12-битный} ЦАП/АЦП (Цифро-аналоговый/Аналого-цифровой Преобразователь)
+    \item Поддерживаемые несущие частоты от 90 [МГц] до \textbf{3.8} [ГГц]
+    \item Поддерживает временной и частотный дуплексы (\textbf{TDD}, \textbf{FDD})
+    \item Ширина полосы частот: \textbf{20} [МГц]
+    \item Шумы в приемнике: \textbf{3} [dB]
+    \item EVM (Error Vector Magnitude): \textbf{-34} [dB]
+    \item Tx noise: \textbf{< -157} [dBm/Hz]
+    \item 2 \textbf{Rx}, 2 \textbf{Tx}
+\end{itemize}
+
+\section*{Структурная схема Zynq}
+
+Каждый Zynq состоит из одного или двух ядер ARM Cortex-A9 (ARM v7), кэш L1 у каждого ядра свой, кэш L2 общий. Поддерживаемая оперативная память имеет стандарты DDR3, DDR3L, DDR2, LPDDR-2. Максимальный объем оперативной памяти равен 1 Гбайт (2 микросхемы по 4 Гбит). Максимальная тактовая частота оперативной памяти 525 МГц. Операционные системы: Standalone (bare-metal) и Petalinux. Процессорный модуль общается с внешним миром и программируемой логикой с помощью портов, объединенных в группы:
+
+\begin{itemize}
+    \item MIO (multiplexed I/O)
+    \item EMIO (extended multiplexed I/O)
+    \item GP (General-Purpose Ports)
+    \item HP (High-Performance Ports)
+    \item ACP (Accelerator coherency port)
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{zynq_structer.png}
+    \caption{Структурная схема Zynq}
+\end{figure}
+
+\section*{Схема интерфейсов Zynq}
+
+\textit{*Буквы S и M у порта обозначают соответственно Slave и Master.}
+
+Так как, в одном корпусе Zynq реализованы и процессорный модуль и программируемая логика, есть выводы, которые относятся к процессорному модулю и выводы, которые относятся к программируемой логике.
+
+\section*{Порты}
+
+Порты MIO представляют собой многофункциональные порты ввода-вывода, непосредственно подключенные к выводам процессорной системы (Processing System, PS). Ключевые характеристики:
+
+\begin{itemize}
+    \item \textbf{Количество:} 54 порта (в большинстве конфигураций)
+    \item \textbf{Назначение:} подключение периферийных устройств PS к внешним выводам кристалла
+    \item \textbf{Особенности:} мультиплексирование функций на одних и тех же физических выводах
+\end{itemize}
+
+\subsection*{MIO}
+
+Порты MIO подключены к выводам процессора. С помощью MIO могут быть подключены следующие периферийные устройства процессорного модуля:
+
+\begin{itemize}
+    \item USB-контроллер – 2 шт
+    \item Gigabit Ethernet контроллер – 2 шт
+    \item SD/SDIO контроллер – 2 шт
+    \item UART – 2 шт
+    \item CAN – 2 шт
+    \item I2C – 2 шт
+    \item SPI – 2 шт
+    \item GPIO. Все выводы можно использовать как выводы общего назначения
+\end{itemize}
+
+Так же, к MIO могут быть подключены следующие устройства памяти процессорного модуля:
+
+\begin{itemize}
+    \item QSPI контроллер
+    \item ONFI контроллер
+    \item SRAM/NOR контроллер
+\end{itemize}
+
+Количество MIO портов равно 54 (за исключением некоторых микросхем в корпусе CLG225, там еще меньше). Поэтому все сразу включить не удастся. Для решения этой проблемы существует группа портов EMIO.
+
+
+\section*{Выполнение}
+
+\section*{Вывод}
 Было изучено создание сигналов и работа с библиотеками Python для SDR.
