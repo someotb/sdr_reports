@@ -65,9 +65,31 @@
 
 % Код и листинги
 \usepackage{listings}
+\usepackage{float}
 \usepackage{xcolor}
 \usepackage{fvextra}
-\usepackage{minted}
+\usepackage{tcolorbox}
+\usepackage{framed}
+
+% Настройка стиля для C++
+\lstdefinestyle{mycppstyle}{
+    language=C++,
+    backgroundcolor=\color{white},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red},
+    showstringspaces=false,
+    tabsize=4,
+    numbersep=5pt
+}
+
+% Простая рамка для кода
+\lstset{style=mycppstyle}
 
 % Списки
 \usepackage{enumitem}
@@ -75,8 +97,8 @@
 \makeatletter
     \AddEnumerateCounter{\asbuk}{\russian@alph}
 \makeatother
-\renewcommand{\labelenumii}{\asbuk{enumii})}
-\renewcommand{\labelenumiii}{\arabic{enumiii})}
+\renewcommand{\labelenumii}{\asbuk{enumii}}
+\renewcommand{\labelenumiii}{\arabic{enumiii}}
 \setlist{noitemsep, leftmargin=*}
 \setlist[1]{labelindent=\parindent}
 \setlist[2]{leftmargin=\parindent}
