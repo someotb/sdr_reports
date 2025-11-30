@@ -1,19 +1,219 @@
-\chapter[]{}
+\chapter[Программная реализация детектора временной ошибки(синхронизация приемника и передатчика) на SDR]{Программная реализация детектора временной ошибки(синхронизация приемника и передатчика) на SDR. Написание функций петли (контура) синхронизации}
 
 \begin{leftbar}
-    \href{https://github.com/someotb/sdr_reports/tree/main/practices/practice4}{Ссылка на GitHub}
+    \href{https://github.com/someotb/sdr_reports/tree/main/practices/practice7}{Ссылка на GitHub}
 \end{leftbar}
 
 \section*{Цель практики:}
 
-
+Написать функцию которая будет автоматически синхронизировать примник и передатчик.
 
 \section*{Краткие теоретические сведения}
 
+Оптимальный приемник выполняет прием дискретных сигналов с минимальной вероятностью ошибки. Строится оптимальный приемник по схеме на
+основе корелляторов или согласованных фильтров.
 
+\vspace{10pt}
 
+Оптимальный приемник выбирает наиболее близкое принятому сигналу r(t)
+из набора возможных колебаний si(t). Это может выполняться вычислением
+расстояния
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{mf.png}
+    \caption{Matched filter}    
+\end{figure}
+
+Если использовать формирующий фильтр с прямоугольной формой ИХ, то
+форма ИХ согласованного фильтра также является прямоугольной. Сигнал на
+выходе СФ вычисляется как свертка отсчетов входного сигнала и ИХ согласованного фильтра.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{mf_cor.png}
+    \caption{Matched filtet/correlator output}    
+\end{figure}
+
+Демодулятор должен сделать отсчет сигнала на выходе СФ точно в момент
+максимума сигнала на выходе СФ. Если время взятия отсчета не совпадает с
+максимумом, то невозможно принять надежное решение о передаваемом символе.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{perfect_bpsk.png}
+    \caption{Идеальный отсчет}    
+\end{figure}
+
+Время взятия отсчета (symbol timing) совпадает с максимумом сигнала на выходе СФ. При смещении времени взятия отсчета берутся значения с выхода СФ
+не в оптимальные моменты времени, что приводит к нарушению возможности
+точного определения амплитуды символа.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{verybad_meh.png}
+    \caption{Плохой отсчет}    
+\end{figure}
+
+\textbf{Детектор временной ошибки - TED}\newline
+Для поиска нужного отсчета сначала вычисляется ошибка положения символа при помощи детектора временной ошибки. Детектор использует набор отсчетов и вычисляет ошибку ТЕД e(n), величина которой зависит от смещения
+максимума выхода СФ. В таблице приведены выражения для вычисления величины ошибки по отсчетам сигнала с выходы СФ.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{ted.png}
+    \caption{TED}    
+\end{figure}
+
+Зависимость сигнала на выходе TED от величины смещения символа (временной ошибки) называется S-curve, для детектора Гарднера она имеет форму
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{ted_graph.png}
+    \caption{Форма TED}    
+\end{figure}
+
+\textbf{Фильтр контура}\newline
+Фильтр выполнен в виде пропорционально-интегрирующего звена по схеме
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{count_filter.png}
+    \caption{Форма TED}    
+\end{figure}
+
+Параметры фильтра
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{params.png}
+    \caption{Параметры фильтра}    
+\end{figure}
+ 
+\indent Программно фильтр реализуется в общем цикле по отсчетам сигнала на
+выходе СФ.\\
+\indent Начальные значения переменных в ветвях K1 и K2 - p1 и p2 равны 0. Сами
+величины K1 и K2 вычисляются перед циклом. Нормированная полоса фильтра
+контура BnTs = 0.01. Также перед циклом задается начальное смещение offset
+=0 (номер отсчета символа, один из 10).\\
+\indent В цикле по отсчетам сигнала на выходе СФ вычисляется текущее значение
+ошибки e для текущего смещения n = offset;\\
+\indent e = (I(n+Nsp+Ns) - I(n+Ns)) * I(n+Nsp/2+Ns) + (Q(n+Nsp+Ns) - Q(n+Ns))
+* Q(n+Nsp/2+Ns).\\
+\indent Если e - текущая величина ошибки на выходе детектора ошибки (на данном
+индексе отсчета сигнала на выходе СФ), то в ветви K1 переменная p1 = e*K1.
+В ветви K2 переменная p2 = p2 + p1 + e*K2. Эта переменая p2 имеет смысл
+задержки, дробного смещения (offset) на длительности символа. Тут же , если
+p2>1, ее сбрасывают\\
+\indent while(p2 > 1) p2 = p2 - 1; end.\\
+\indent После этого определяется уточнененное смещение в отсчетах (offset), для
+этого нужно умножить p2 на Nsps и округлить произведение до ближайшего
+целого, offset = round(p2*Nsps), это будет смещение на данной итерации (оптимальный отсчет текущего символа, индекс в массиве отсчетов сигнала на выходе СФ).
+На следующем символе снова вычисляется
+величина ошибки и после фильтрации определяется смещение, по которому находится следующий индекс отсчета offset+Nsps . Таким образом контур сводит
+ошибку к мимнимуму и определяются оптимальные индексы в массиве отсчетов
+символов сигнала на выходе СФ.
 \section*{Выполнение}
 
+Напишем функцию Гарднера, которая будет автоматически искать offset
 
+\begin{lstlisting}[language=python, caption=Функция Гарднера]
+import numpy as np
+def gardner(complex_symbols_saw):
+    p1 = 0
+    p2 = 0
+    offset = 0
+    BnTs = 0.01
+    Nsp = 10 # Samples per symbol
+    zeta = np.sqrt(2)/2
+    teta = (BnTs/Nsp)/(zeta + 1/(4*zeta))
+    css = complex_symbols_saw
+    Kp = 0.002
+    K1 = (-4 * zeta * teta)/((1 + 2 * zeta * teta + teta ** 2) * Kp)
+    K2 = (-4 * teta ** 2)/((1 + 2 * zeta * teta + teta ** 2) * Kp)
+    list_of_offset = []
+    
+    for n in range(0, len(css)-22):
+        err = (np.real(css[n + Nsp + Nsp]) - np.real(css[n + Nsp])) * np.real(css[n + Nsp + Nsp//2]) + (np.imag(css[n + Nsp + Nsp]) - np.imag(css[n + Nsp])) * np.imag(css[n + Nsp + Nsp//2])
+        err = np.real(err)
+        p1 = err * K1
+        p2 = p2 + p1 + err * K2
+        while p2 > 1:
+            p2 = p2 - 1
+        while p2 < -1:
+            p2 = p2 + 1
+        offset = np.round(p2 * Nsp)
+        list_of_offset.append(offset)
+        
+    return int(offset), list_of_offset
+\end{lstlisting}
+
+\vspace{20pt}
+
+Используем эту функций в нашем коде
+
+\begin{lstlisting}[language=python, caption=Функция Гарднера]
+from matplotlib import pyplot as plt
+import numpy as np
+from auto_offset import gardner
+
+rx = np.fromfile(f"/home/someotb/Files/Code/sdr/pluto/dev/build/rx.pcm", dtype=np.int16)
+
+samples = []
+
+for x in range(0, len(rx), 2):
+    samples.append((rx[x] + 1j * rx[x+1])/np.max(rx))
+
+plt.figure()
+plt.scatter(np.real(samples), np.imag(samples))
+plt.axhline()
+plt.axvline()
+
+impulse = np.ones(10)
+
+I = np.real(samples)
+Q = np.imag(samples)
+
+i_convolve = np.convolve(I, impulse)
+q_convolve = np.convolve(Q, impulse)
+
+i_con_dec = []
+q_con_dec = []
+list_offset = []
+
+offset, list_offset = gardner(i_convolve + 1j * q_convolve)
+print(offset)
+
+plt.figure()
+plt.title("offset")
+plt.plot(np.arange(len(list_offset)), list_offset)
+plt.ylim([-20, 20])
+plt.xlim([4060, 4560])
+
+for i in range(offset, len(i_convolve), 10):
+    i_con_dec.append(i_convolve[i])
+    q_con_dec.append(q_convolve[i])
+
+# Убираем шумы
+# i_con_dec = [x for x in i_con_dec if not (abs(x) <= 1)]
+# q_con_dec = [x for x in q_con_dec if not (abs(x) <= 1)]
+
+print("lenght i_con_dec: ", len(i_con_dec))
+print("lenght q_con_dec: ", len(q_con_dec))
+
+plt.figure()
+plt.subplot(2,1,1)
+plt.scatter(i_con_dec, q_con_dec)
+plt.axhline()
+plt.axvline()
+plt.subplot(2,1,2)
+plt.xlim([5000, 5500])
+plt.ylim([-30, 30])
+plt.scatter(np.arange(len(i_convolve)), i_convolve)
+plt.scatter(np.arange(len(q_convolve)), q_convolve)
+
+plt.show()
+\end{lstlisting}
 
 \section*{Вывод}
+Написал, программную реализация детектора ошибки, исполнил в коде схему Гарднера.
