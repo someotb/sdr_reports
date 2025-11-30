@@ -251,7 +251,6 @@ import numpy as np
 
 rx = np.fromfile("/home/plutoSDR/sdr/pluto/dev/rx.pcm", dtype=np.int16)
 
-# Преобразование в комплексные отсчеты (I + j*Q)
 samples = []
 for x in range(0, len(rx), 2):
     samples.append(rx[x] + 1j * rx[x+1])
