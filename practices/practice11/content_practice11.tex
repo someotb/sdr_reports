@@ -1,0 +1,281 @@
+\chapter[Реализация коррекции частотного смещения по пилотам]{Реализация коррекции частотного смещения по пилотам}
+
+\begin{leftbar}
+    \href{https://github.com/someotb/sdr}{Ссылка на GitHub}
+\end{leftbar}
+
+\section*{Цель практики:}
+Реализовать алгоритм частотной коррекции по пилотам, экавализация.
+
+\section*{Краткие теоретические сведения}
+
+\textbf{Эквализация по пилотам}\newline
+
+После удаления циклического префикса и выполнения прямого DFT над
+принятым OFDM-символом каждая поднесущая описывается моделью
+
+\begin{equation}
+    Y[k] = H[k]\,X[k] + W[k], \quad k = 0,\dots,N-1,
+    \label{eq:channel_model}
+\end{equation}
+
+где $H[k]$ — комплексный коэффициент передачи канала на $k$-й поднесущей
+(амплитудное затухание и фазовый сдвиг, вызванные многолучевым
+распространением), $X[k]$ — переданный символ, $W[k]$ — аддитивный шум.
+Поскольку канал частотно-селективен, $H[k]$ различен для разных
+поднесущих, и для восстановления $X[k]$ его необходимо оценить и
+скомпенсировать отдельно на каждой поднесущей.
+
+\vspace{20pt}
+
+\textbf{Оценка канала по пилотам}\newline
+
+На части поднесущих (пилотных, с индексами $k \in \mathcal{P}$)
+передаются символы $X_p[k]$, заранее известные приёмнику. Это позволяет
+получить прямую оценку канала на этих поднесущих:
+
+\begin{equation}
+    \hat{H}[k] = \frac{Y[k]}{X_p[k]}, \quad k \in \mathcal{P}.
+\end{equation}
+
+Поскольку пилоты занимают не все поднесущие (иначе не осталось бы места
+под полезные данные), оценка канала для промежуточных поднесущих
+$k \notin \mathcal{P}$ получается интерполяцией между соседними
+пилотными оценками (линейной или иного порядка).
+
+\vspace{20pt}
+
+\textbf{Компенсация искажений (эквализация)}\newline
+
+Зная оценку $\hat{H}[k]$ для каждой поднесущей, искажение канала
+устраняется делением принятого символа на эту оценку:
+
+\begin{equation}
+    \hat{X}[k] = \frac{Y[k]}{\hat{H}[k]}.
+\end{equation}
+
+Эта операция одновременно компенсирует и амплитудное затухание, и
+фазовый сдвиг, внесённые каналом на данной конкретной поднесущей, что
+возможно только благодаря диагонализации канала в частотной области,
+обеспеченной циклическим префиксом.
+
+\vspace{20pt}
+
+\textbf{Отличие от коррекции CFO}\newline
+
+Эквализация по пилотам и коррекция частотного смещения решают разные
+задачи. CFO вносит фазовый сдвиг, одинаково нарастающий во времени для
+всех поднесущих одновременно и не зависящий от частотной характеристики
+канала, в то время как $H[k]$ отражает избирательные по частоте
+искажения, вносимые самим каналом. Если CFO не скомпенсировано до FFT,
+вносимая им фазовая ошибка исказит и саму оценку $\hat{H}[k]$ по
+пилотам, поскольку эквалайзер интерпретирует эту ошибку как часть
+характеристики канала.
+
+\section*{Выполнение}
+
+Была написана функция эквализации:
+
+\begin{lstlisting}[language=C++,caption=Фунция эквализации]
+void equalization(std::vector<std::complex<float>> &in_signal, sharedData &sd, std::vector<std::complex<float>> &out_signal)
+{
+    out_signal.clear();
+    out_signal.reserve(in_signal.size());
+
+    int subcarrar = sd.subcarrier;
+    int num_symbols = in_signal.size() / subcarrar;
+
+    for (int i = 0; i < num_symbols; ++i)
+    {
+        std::vector<std::complex<float>> H(subcarrar, {0.0f, 0.0f});
+        std::vector<std::complex<float>> equalized(subcarrar, {0.0f, 0.0f});
+        const std::complex<float> known_pilot_conj(1.0f / std::sqrt(2.0f), 0.0f / std::sqrt(2.0f));
+
+        for (int p_idx : sd.pilot_idxs)
+        {
+            std::complex<float> received_pilot = in_signal[i * subcarrar + p_idx];
+            H[p_idx] = received_pilot * known_pilot_conj;
+        }
+
+        for (size_t p = 0; p + 1 < sd.pilot_idxs.size(); ++p)
+        {
+            int k1 = sd.pilot_idxs[p];
+            int k2 = sd.pilot_idxs[p + 1];
+
+            std::complex<float> H1 = H[k1];
+            std::complex<float> H2 = H[k2];
+
+            float phi1 = std::arg(H1);
+            float phi2 = std::arg(H2);
+
+            float delta_phi = phi2 - phi1;
+
+            if (delta_phi > M_PIf)
+                delta_phi -= 2 * M_PI;
+
+            if (delta_phi < -M_PIf)
+                delta_phi += 2 * M_PI;
+
+            for (int k = k1 + 1; k < k2; ++k)
+            {
+                if (sd.is_zeros[k])
+                    continue;
+
+                float alpha = float(k - k1) / float(k2 - k1);
+                H[k] = std::polar(std::abs(H1) + alpha * (std::abs(H2) - std::abs(H1)), phi1 + alpha * delta_phi);
+            }
+        }
+
+        for (int k = 0; k < sd.pilot_idxs.front(); ++k)
+            H[k] = H[sd.pilot_idxs.front()];
+
+        for (int k = sd.pilot_idxs.back() + 1; k < subcarrar; ++k)
+            H[k] = H[sd.pilot_idxs.back()];
+
+        {
+            std::lock_guard<std::mutex> lock(sd.sync.channel_estimation_mutex);
+            if (sd.channel_estimation.size() >= (size_t)sd.mtu)
+                sd.channel_estimation.erase(sd.channel_estimation.begin(),
+                                                  sd.channel_estimation.begin() + sd.subcarrier);
+            for (const auto& h : H)
+                sd.channel_estimation.push_back(h);
+        }
+
+        for (int k = 0; k < subcarrar; ++k)
+        {
+            if (sd.is_zeros[k] || std::abs(H[k]) < 1e-6f)
+                equalized[k] = {0, 0};
+            else
+                equalized[k] = in_signal[i * subcarrar + k] / H[k];
+        }
+
+        for (size_t k = 0; k < equalized.size(); ++k)
+        {
+            if (sd.is_zeros[k] || sd.is_pilot[k])
+                continue;
+
+            out_signal.push_back(equalized[k]);
+        }
+    }
+}
+\end{lstlisting}
+
+\textbf{Функция эквализации}\newline
+
+Функция \texttt{equalization} выполняет коррекцию частотно-избирательных
+искажений канала для каждого OFDM-символа входного буфера отдельно.
+
+Для каждого символа сначала на пилотных поднесущих вычисляется прямая
+оценка канала $H[k] = Y[k] \cdot \overline{X_p}[k]$, где $Y[k]$ —
+принятое значение пилота, $\overline{X_p}[k]$ — сопряжённое известное
+значение пилота. Далее оценка канала для поднесущих между соседними
+пилотами получается линейной интерполяцией отдельно по модулю и по
+фазе $H[k]$, с корректной обработкой перехода фазы через $\pm\pi$.
+Поднесущие до первого и после последнего пилота получают оценку,
+равную ближайшему крайнему пилоту (экстраполяция константой).
+
+Полученная оценка канала сохраняется в общий буфер \texttt{sd.channel\_estimation}
+(с ограничением по размеру \texttt{mtu}) для последующего использования,
+например при построении графиков АЧХ/ФЧХ канала.
+
+Компенсация искажений выполняется делением принятого символа на оценку
+канала: $\hat{X}[k] = Y[k] / H[k]$. Нулевые (защитные) поднесущие и
+поднесущие с вырожденной оценкой канала ($|H[k]| < 10^{-6}$)
+принудительно обнуляются во избежание деления на близкое к нулю число.
+
+На выходе из каждого символа исключаются пилотные и нулевые поднесущие —
+в выходной буфер попадают только эквализованные символы данных.
+
+Вот как выглядит работа CFO и эквализации между 2-мя Adalm Pluto SDR:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{nothing.jpg}
+    \caption{Передача без CFO и EQ}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{add_cfo.jpg}
+    \caption{Передача c CFO, но без EQ}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{add_eq.jpg}
+    \caption{Передача с CFO и EQ}
+\end{figure}
+
+\section*{Результаты практики}
+
+Была написана программа, которая реализует полноценную передачу OFDM символов, с CFO и EQ. Поддерживаемые модуляции:
+\begin{itemize}
+	\item BPSK
+	\item QPSK
+	\item QAM16
+	\item QAM64
+	\item QAM256
+\end{itemize}
+
+Также была создана панель с отладочной информация, которая показывает:
+\begin{itemize}
+	\item Задержку dsp уровня, которая показывает сколько милисекунд занимает обрабтка сэмплов
+	\item График с пиком корреляции Zadoff-Chu
+	\item График нахождения пиков Zadoff-Chu
+	\item График коррекции CFO
+	\item График оценки канала, которая берется из EQ
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{latency.jpg}
+    \caption{Задержка DSP уровня}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{channel_est.jpg}
+    \caption{Оценка канала}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{cfo_corr.jpg}
+    \caption{График CFO}
+\end{figure}
+
+Пример передачи QAM16 между 2-х Adalm Pluto SDR
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{ready.jpg}
+    \caption{Передача QAM16(2 SDR)}
+\end{figure}
+
+\section*{Вывод}
+
+В ходе практики была реализована полная цепочка передачи и приёма
+OFDM-сигнала: формирование символов из потока данных с поддержкой
+модуляций BPSK, QPSK, QAM16, QAM64 и QAM256, детектирование границ
+кадра по корреляции с последовательностью Задова-Чу, оценка и
+коррекция частотного смещения по циклическому префиксу, оценка канала
+и эквализация по пилотным поднесущим.
+
+Работоспособность реализованных алгоритмов подтверждена не только на
+модельных данных, но и на реальном радиоканале между двумя SDR
+Adalm Pluto — сигнал с модуляцией QAM16 был успешно передан, принят и
+демодулирован без ошибок, что отражено на приведённых графиках оценки
+канала и коррекции CFO.
+
+Отдельно была разработана отладочная панель, отображающая ключевые
+метрики DSP-цепочки в реальном времени: задержку обработки на уровне
+DSP, пик корреляции и положение синхронизирующей последовательности
+Задова-Чу, динамику коррекции CFO и текущую оценку канала. Эти
+инструменты подтвердили, что каждый этап обработки — синхронизация,
+коррекция частоты, эквализация — работает согласованно и вносит
+измеримый, ожидаемый вклад в качество приёма.
+
+Практика позволила перейти от теоретического понимания OFDM к
+работающей системе, где каждый этап обработки сигнала — от
+формирования символа до восстановления данных — реализован,
+протестирован и проверен на реальном оборудовании.

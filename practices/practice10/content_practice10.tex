@@ -1,0 +1,136 @@
+\chapter[Формирования и прием OFDM. Построение спектра радиосигнала (преобразование Фурье). Изучение работы библиотеки FFTW3]{Формирования и прием OFDM. Построение спектра радиосигнала (преобразование Фурье). Изучение работы библиотеки FFTW3.}
+
+\begin{leftbar}
+    \href{https://github.com/someotb/sdr}{Ссылка на GitHub}
+\end{leftbar}
+
+\section*{Цель практики:}
+Сформировать, отправить и принять OFDM символы. Построить спектр радиосигнала. Использовать библиотеку fftw3 для FFT.
+
+\section*{Краткие теоретические сведения}
+
+\textbf{Формирование буффера}\newline
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{ofdm_symbol.png}
+    \caption{Как выгядит OFDM символ в частотной области}
+\end{figure}
+
+Такими OFDM символами мы заполняем буффер размером 1920 символов. Туда влезает 1920 / 128 = 15 OFDM символов, но не забываем что у нас еще есть PSS Zadoff-Chu, который
+занимает 128 символов, то есть под OFDM символы у нас уходит 1920 - 128 символов. Но, также у нас есть CP - cyclic prefex размером 32 символа, значит размер передоваемого OFDM символа будет 128 + 32 = 160, отсюда общее кол-во
+OFDM символов котрое мы сможем передать это 1920 / 160 = 12 - 1(под Zadoff-Chu)
+
+\textbf{Построение спектра. Библиотека fftw3}\newline
+
+Чтобы построить спектр радиосигнала нужно провести прямое преобразовние фурье над буффером, чтобы перевести из временной области в частотную. В этом
+мне поможет библиотека fftw3, которая оптимизирована под работу алгоритма Фурье.
+
+\section*{Выполнение}
+
+\textbf{Класс для работы с fftw3}\newline
+
+Я уже показывал как формируется OFDM-символ в предыдущем отчете, так что сильно тут останавливаться не будем, перейдем к спектру сигнала.
+Для удобства я создал отдельный класс для работы с fftw3:
+
+\begin{lstlisting}[language=C++,caption=Класс для работы с fftw3]
+class FFT_Context
+{
+    private:
+        fftwf_plan plan_forward;
+        fftwf_plan plan_backward;
+
+    public:
+        int N;
+        fftwf_complex *in;
+        fftwf_complex *out;
+        FFT_Context(int n);
+        ~FFT_Context();
+        void fft();
+        void ifft();
+};
+
+FFT_Context::FFT_Context(int n) : N(n)
+{
+    in = fftwf_alloc_complex(N);
+    out = fftwf_alloc_complex(N);
+
+    plan_forward = fftwf_plan_dft_1d(N, in, out, FFTW_FORWARD, FFTW_MEASURE);
+    plan_backward = fftwf_plan_dft_1d(N, in, out, FFTW_BACKWARD, FFTW_MEASURE);
+}
+
+FFT_Context::~FFT_Context()
+{
+    fftwf_destroy_plan(plan_forward);
+    fftwf_destroy_plan(plan_backward);
+    fftwf_free(in);
+    fftwf_free(out);
+}
+
+void FFT_Context::fft()
+{
+    fftwf_execute(plan_forward);
+}
+
+void FFT_Context::ifft()
+{
+    fftwf_execute(plan_backward);
+
+    float scale = 1.0f / N;
+    for (int i = 0; i < N; ++i)
+    {
+        out[i][0] *= scale;
+        out[i][1] *= scale;
+    }
+}
+\end{lstlisting}
+
+Объект класса создается с входным параметром, размер ожидаемого FFT, есть функции для прямого и обратного преобразования, внутренние массивы fftw3
+создаются и удаляются автоматически через конструктор и деструктор. Есть встроенный scale после обратного преобразования Фурье.
+
+\vspace{20pt}
+
+\textbf{Спектр радиосигнала}\newline
+
+Спектр делается с помощью той же библиотеки fftw3
+
+\begin{lstlisting}[language=C++,caption=Функция для построения спектра]
+void spectrum(std::vector<std::complex<float>> &in_signal, std::vector<float> &shifted_magnitude, std::vector<float> &argument, FFT_Context &context)
+{
+    std::vector<float> magnitude(in_signal.size(), 0);
+
+    for (size_t i = 0; i < in_signal.size(); ++i)
+    {
+        context.in[i][0] = std::real(in_signal[i]) / 32768.0;
+        context.in[i][1] = std::imag(in_signal[i]) / 32768.0;
+    }
+
+    context.fft();
+
+    for (size_t i = 0; i < in_signal.size(); ++i)
+    {
+        float real = context.out[i][0];
+        float imag = context.out[i][1];
+        magnitude[i] = 20.0 * log10(sqrt(real * real + imag * imag) / in_signal.size());
+        argument[i] = atan2(imag, real);
+    }
+
+    for (size_t i = 0; i < in_signal.size() / 2; ++i)
+    {
+        shifted_magnitude[i] = magnitude[i + in_signal.size() / 2];
+        shifted_magnitude[i + in_signal.size() / 2] = magnitude[i];
+    }
+}
+\end{lstlisting}
+
+Функция выполняет прямое преобразование Фурье, затем берет амплитуду сигнала и переводит ее в dB, также она берет phase. Функция
+также сдвигает частоты в более привычное расположение, так как после FFT частоты расположены так: [0, +freq, -freq], функция делает их такими:
+[-freq, 0, +freq]. Вот как это выглядит в GUI, в правом нижнем углу спектр сигнала QPSK:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{spectre.jpg}
+    \caption{Спектр сигнала}
+\end{figure}
+
+\section*{Вывод}
+Был написал класс для удобной работы с fftw3, функция построения спектра, вывод его в GUI.

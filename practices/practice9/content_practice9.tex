@@ -1,0 +1,320 @@
+\chapter[Коррекция частотного смещения в отсчётах принятого сигнала
+Переход от одной несущей к OFDM , начало формирования и приема OFDM]{Коррекция частотного смещения в отсчётах принятого сигнала
+Переход от одной несущей к OFDM , начало формирования и приема OFDM}
+
+\begin{leftbar}
+    \href{https://github.com/someotb/sdr}{Ссылка на GitHub}
+\end{leftbar}
+
+\section*{Цель практики:}
+Перейти от single carrier к OFDM. Сформировать OFDM символы, заполнить буффер этими символами. На приеме раскодировать принятые символы. Осуществить
+алгоритм коррекции частотного смещения(CFO).
+
+\section*{Краткие теоретические сведения}
+
+\textbf{Переход от одной несущей к OFDM}\newline
+
+В системах с одной несущей (Single Carrier, SC) каждый передаваемый символ
+занимает всю доступную полосу частот. При прохождении через многолучевой
+канал с разбросом задержек $\tau_{max}$, превышающим длительность символа,
+возникает межсимвольная интерференция (ISI), устранение которой во временной
+области требует сложного эквалайзера (например, адаптивного КИХ-фильтра
+большой длины).
+
+В OFDM (Orthogonal Frequency Division Multiplexing) поток данных
+разбивается на $N$ параллельных потоков, каждый из которых модулирует одну
+из $N$ ортогональных поднесущих. Формирование временного OFDM-символа из
+блока комплексных символов данных $X[k]$, $k = 0,\dots,N-1$, выполняется
+обратным дискретным преобразованием Фурье (IDFT/IFFT):
+
+\begin{equation}
+    x[n] = \frac{1}{N}\sum_{k=0}^{N-1} X[k]\, e^{j2\pi kn/N}, \quad n = 0,\dots,N-1.
+\end{equation}
+
+Для борьбы с межсимвольной интерференцией к каждому символу спереди
+добавляется циклический префикс (CP) длиной $N_{CP} > \tau_{max}$ —
+копия последних $N_{CP}$ отсчётов символа:
+
+\begin{equation}
+    x_{CP}[n] = x[N + n], \quad n = -N_{CP},\dots,-1.
+\end{equation}
+
+CP превращает линейную свёртку сигнала с импульсной характеристикой канала
+в круговую в пределах длительности символа. Благодаря этому после удаления
+CP на приёмной стороне и выполнения прямого DFT (FFT) канал в частотной
+области представляется как поэлементное (плоское) умножение на комплексный
+коэффициент $H[k]$ для каждой поднесущей:
+
+\begin{equation}
+    Y[k] = H[k]\,X[k] + W[k],
+\end{equation}
+
+что позволяет выполнять эквализацию однократным делением на оценку $H[k]$,
+полученную по пилотным поднесущим.
+
+\vspace{20pt}
+
+\textbf{Коррекция частотного смещения (CFO)}\newline
+
+Рассогласование частот гетеродинов передатчика и приёмника
+(Carrier Frequency Offset, CFO) $\Delta f$ приводит к тому, что принятый
+дискретный сигнал приобретает линейно нарастающий по времени фазовый
+набег:
+
+\begin{equation}
+    r[n] = s[n] \cdot e^{j2\pi \Delta f \, n T_s} + w[n],
+    \label{eq:cfo_model}
+\end{equation}
+
+где $T_s = 1/f_s$ — период дискретизации, $f_s$ — частота дискретизации,
+$s[n]$ — переданный сигнал без искажений. Некомпенсированное CFO нарушает
+ортогональность поднесущих и приводит к межканальной интерференции (ICI)
+после FFT.
+
+\vspace{20pt}
+
+\textbf{Оценка CFO по циклическому префиксу}\newline
+
+Поскольку циклический префикс является точной копией хвостовой части
+OFDM-символа, сдвинутой на $N$ отсчётов, эти два фрагмента сигнала (в
+отсутствие шума и при статичном CFO) отличаются только фазовым набегом,
+накопленным за $N$ отсчётов согласно \eqref{eq:cfo_model}. Это позволяет
+оценить $\Delta f$ без отдельной обучающей последовательности —
+корреляцией CP с соответствующим ему фрагментом в конце символа:
+
+\begin{equation}
+    C = \sum_{k=0}^{N_{CP}-1} r^{*}[n_0 + k]\, r[n_0 + k + N],
+\end{equation}
+
+где $n_0$ — начало символа. Фаза этой корреляции связана с CFO
+соотношением
+
+\begin{equation}
+    \arg(C) = 2\pi \Delta f \, N T_s,
+\end{equation}
+
+откуда оценка частотного смещения:
+
+\begin{equation}
+    \hat{\Delta f} = \frac{\arg(C)}{2\pi N T_s} = \frac{\arg(C)\, f_s}{2\pi N}.
+    \label{eq:cfo_est}
+\end{equation}
+
+Для повышения точности оценки корреляционные суммы когерентно
+накапливаются по всем $M$ символам в обрабатываемом блоке:
+
+\begin{equation}
+    C_{\Sigma} = \sum_{m=0}^{M-1} \sum_{k=0}^{N_{CP}-1}
+        r^{*}[n_m + k]\, r[n_m + k + N],
+\end{equation}
+
+что снижает дисперсию оценки, но требует постоянства $\Delta f$ на
+протяжении всего блока.
+
+Поскольку $\arg(\cdot)$ определён на интервале $(-\pi, \pi]$, а фазовый
+набег в \eqref{eq:cfo_est} накапливается за $N$ отсчётов, метод даёт
+однозначную оценку только при
+
+\begin{equation}
+    |\Delta f| < \frac{f_s}{2N}.
+\end{equation}
+
+При большем смещении возникает неоднозначность (алиасинг оценки).
+
+\vspace{20pt}
+
+\textbf{Коррекция CFO}\newline
+
+Компенсация выполняется умножением каждого отсчёта на комплексную
+экспоненту с противоположным фазовым набегом:
+
+\begin{equation}
+    \hat{s}[n] = r[n] \cdot e^{-j2\pi \hat{\Delta f}\, n T_s}.
+\end{equation}
+
+Практически это реализуется рекурсивно (по типу цифрового генератора,
+NCO), чтобы фаза коррекции непрерывно накапливалась от отсчёта к отсчёту
+и не сбрасывалась на границах обрабатываемых блоков:
+
+\begin{equation}
+    \varphi[n] = \varphi[n-1] - 2\pi \hat{\Delta f} T_s,
+    \qquad
+    \hat{s}[n] = r[n]\, e^{j\varphi[n]},
+\end{equation}
+
+с приведением $\varphi[n]$ к интервалу $(-\pi, \pi]$ для численной
+устойчивости. Такой подход эквивалентен прямому умножению на
+$e^{-j2\pi\hat{\Delta f} n T_s}$, но не требует хранения абсолютного
+индекса отсчёта $n$ с начала передачи.
+
+\section*{Выполнение}
+
+Параметры OFDM который я выбрал:
+\begin{itemize}
+	\item \textbf{128} поднесущих
+	\item \textbf{32} циклический префик
+	\item \textbf{27 + 28} защитных нулей по краям OFDM символа(в частотной области)
+	\item \textbf{4} пилотные поднесущие(можно менять кол-во)
+\end{itemize}
+
+Функция которая отвечает за построение OFDM символа выглядит так:
+
+\begin{lstlisting}[language=C++, caption={Функция, которая строит один OFDM символ}]
+void build_ofdm_symbol(std::vector<uint8_t> &in, FFT_Context &context, const sharedData &sd, int &offset)
+{
+    context.N = sd.subcarrier;
+    for (int k = 0; k < context.N; ++k)
+    {
+        if (sd.is_zeros[k])
+        {
+            context.in[k][0] = 0;
+            context.in[k][1] = 0;
+        }
+        else if (sd.is_pilot[k])
+        {
+            context.in[k][0] = 1.0f / std::sqrt(2.0f);
+            context.in[k][1] = 0.0f / std::sqrt(2.0f);
+        }
+        else
+        {
+            auto s = map_symbol(in, sd.modul_type_TX, offset);
+            context.in[k][0] = s.real();
+            context.in[k][1] = s.imag();
+        }
+    }
+
+    context.ifft();
+}
+\end{lstlisting}
+
+В функции используется вектора is\_pilot/is\_zeros, которые выдают true значение, если в данном индексе должен стоять защитный ноль или пилотная поднесущая.
+Пилот делается как BPSK символ по стандарту 3GPP. Функция map\_symbol возвращает символ, который был сделан из входного массива бит по коду Грея, также по стандарту 3GPP.
+
+\begin{lstlisting}[language=C++, caption=Функция которая сторит символ из битов]
+std::complex<float> map_symbol(std::vector<uint8_t> &in, ModulationType mod, int &offset)
+{
+    if ((size_t)offset > in.size() - 8)
+        return {0.0f, 0.0f};
+
+    switch (mod)
+    {
+    case ModulationType::BPSK:
+    {
+        float v = 1.0f - 2.0f * in[offset]; offset++;
+        return std::complex<float>(v, v) / std::sqrt(2.0f);
+    }
+    case ModulationType::QPSK:
+    {
+        float real = 1.0f - 2.0f * in[offset]; offset++;
+        float imag = 1.0f - 2.0f * in[offset]; offset++;
+        return std::complex<float>(real, imag) / std::sqrt(2.0f);
+    }
+    case ModulationType::QAM16:
+    {
+        int b0 = in[offset]; offset++;
+        int b1 = in[offset]; offset++;
+        int b2 = in[offset]; offset++;
+        int b3 = in[offset]; offset++;
+        float real = (1.0f - 2.0f * b0) * (2.0f - (1.0f - 2.0f * b2));
+        float imag = (1.0f - 2.0f * b1) * (2.0f - (1.0f - 2.0f * b3));
+        return std::complex<float>(real, imag) / std::sqrt(10.0f);
+    }
+    case ModulationType::QAM64:
+    {
+        int b0 = in[offset]; offset++;
+        int b1 = in[offset]; offset++;
+        int b2 = in[offset]; offset++;
+        int b3 = in[offset]; offset++;
+        int b4 = in[offset]; offset++;
+        int b5 = in[offset]; offset++;
+        float real = (1.0f - 2.0f * b0) * (4.0f - (1.0f - 2.0f * b2) * (2.0f - (1.0f - 2.0f * b4)));
+        float imag = (1.0f - 2.0f * b1) * (4.0f - (1.0f - 2.0f * b3) * (2.0f - (1.0f - 2.0f * b5)));
+        return std::complex<float>(real, imag) / std::sqrt(42.0f);
+    }
+    case ModulationType::QAM256:
+    {
+        int b0 = in[offset]; offset++;
+        int b1 = in[offset]; offset++;
+        int b2 = in[offset]; offset++;
+        int b3 = in[offset]; offset++;
+        int b4 = in[offset]; offset++;
+        int b5 = in[offset]; offset++;
+        int b6 = in[offset]; offset++;
+        int b7 = in[offset]; offset++;
+
+        float real = (1.0f - 2.0f * b0) * (8.0f - (1.0f - 2.0f * b2) * (4.0f - (1.0f - 2.0f * b4) * (2.0f - (1.0f - 2.0f * b6))));
+
+        float imag = (1.0f - 2.0f * b1) * (8.0f - (1.0f - 2.0f * b3) * (4.0f - (1.0f - 2.0f * b5) * (2.0f - (1.0f - 2.0f * b7))));
+
+        return std::complex<float>(real, imag) / std::sqrt(170.0f);
+    }
+
+    default:
+        throw std::runtime_error("Unsupported mod");
+    }
+}
+\end{lstlisting}
+
+\vspace{20pt}
+
+Также у меня есть функция cfo\_est, которая отвечает за коррекцию частотного смещения в пределах 7.5 кГц, так как у меня при sample rate = 1.92e6 Гц и кол-во
+поднесущих равному 128, получается что каждая поднесущая расположена друг от друга на 15 кГц, отсюда и предел в 7.5 кГц.
+
+\begin{lstlisting}[language=C++, caption=Функция коррекции частотного смещения]
+std::vector<std::complex<float>> cfo_est(const std::vector<std::complex<float>> &signal, sharedData &sd)
+{
+    int N = sd.subcarrier;
+    int CP = sd.cyclic_prefex;
+    int sym_len = N + CP;
+    float fs = sd.sample_rate;
+
+    int n_symbols = signal.size() / sym_len;
+    if (n_symbols < 1)
+        return {};
+
+    std::complex<float> corr_sum = 0;
+    for (int sym = 0; sym < n_symbols; sym++)
+    {
+        int sym_start = sym * sym_len;
+        std::complex<float> corr = 0;
+        for (int k = 0; k < CP; k++)
+            corr += conj(signal[sym_start + k]) * signal[sym_start + k + N];
+        corr_sum += corr;
+    }
+
+    float epsilon = std::arg(corr_sum) / (2 * M_PI);
+    float delta_f = epsilon * fs / N; // На сколько символ отклоняется от эталона по фазе в Гц
+
+    if ((int)sd.cfo_offset.size() > sd.mtu)
+    {
+        sd.cfo_offset.erase(sd.cfo_offset.begin());
+        sd.cfo_offset.push_back(delta_f);
+    }
+    else
+        sd.cfo_offset.push_back(delta_f);
+
+    std::vector<std::complex<float>> corrected(signal.size());
+    for (size_t n = 0; n < signal.size(); n++)
+    {
+        corrected[n] = signal[n] * std::polar(1.0f, sd.current_phase);
+        sd.current_phase -= 2 * M_PI * delta_f / fs;
+        if (sd.current_phase < -M_PI) sd.current_phase += 2 * M_PI;
+        if (sd.current_phase > M_PI)  sd.current_phase -= 2 * M_PI;
+    }
+
+    return corrected;
+}
+\end{lstlisting}
+
+Функция оценивает частотное смещение по фазовому сдвигу между циклическим префиксом и его копией в конце символа, а затем разворачивает фазу каждого отсчёта на компенсирующий угол.
+
+Сначала сигнал режется на символы длиной `N + CP` каждый. Для каждого символа берутся первые `CP` отсчётов (это циклический префикс) и сравниваются с отсчётами, которые находятся ровно на `N` позиций дальше — это как раз тот кусок символа, копией которого является CP. Сравнение делается через `conj(signal[k]) * signal[k+N]` — это комплексное произведение, которое одновременно даёт и то, насколько похожи два отсчёта по амплитуде, и на какой угол один повёрнут относительно другого по фазе. Все такие произведения внутри символа складываются, и все символы блока тоже складываются в одну сумму `corr\_sum` — это накопление увеличивает точность оценки, потому что случайный шум при суммировании частично гасится, а полезный фазовый сдвиг (если он одинаковый во всех символах) складывается когерентно.
+
+Дальше `arg(corr\_sum)` берёт угол этого накопленного комплексного числа — это и есть средний фазовый сдвиг между CP и его оригиналом, накопленный за `N` отсчётов. Деление на `N` и умножение на `fs` переводит этот угол из "радиан за N отсчётов" в физическую величину — герцы смещения частоты, `delta\_f`.
+
+Буфер `sd.cfo\_offset` — это просто скользящее окно последних оценок `delta\_f`, ограниченное размером `mtu`, старые значения выбрасываются с начала. В приведённом коде оно нигде не используется дальше, то есть накопленная история пока просто хранится, а не влияет на компенсацию.
+
+Сама компенсация — это отдельный проход по всем отсчётам сигнала. Каждый отсчёт умножается на `exp(j * current\_phase)` (через `polar(1.0, phase)`, что и есть комплексное число единичной длины с этим углом). После каждого отсчёта фаза `current\_phase` уменьшается на маленький шаг `2π * delta\_f / fs` — это и есть та же логика, что "рассинхронизация растёт с каждым отсчётом", только в обратную сторону, компенсирующую эту рассинхронизацию. Условия с `-M\_PI`/`M\_PI` просто не дают углу уйти за пределы одного оборота окружности, потому что `polar` работает с любым углом одинаково, а держать угол в разумных пределах — вопрос численной аккуратности.
+
+\section*{Вывод}
+Был осуществлен переход от SC к OFDM. Написан алгоритм коррекции частотного смещения.
